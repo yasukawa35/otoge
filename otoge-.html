@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>オフライン・リズムゲーム</title>
+    <style>
+        /* --- スタイル設定 (オフライン対応のため全てインライン) --- */
+        
+        :root {
+            --game-width: 400px;
+            --lane-height: 500px;
+            --note-speed: 2.0; 
+            --color-bg: #0d1117;
+            --color-surface: #161b22;
+            --color-border: #30363d;
+            --color-accent-pink: #ff007f; /* 判定ラインの色 */
+            --color-text-main: #c9d1d9;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+            background-color: var(--color-bg); 
+            color: var(--color-text-main);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 16px;
+            margin: 0;
+            user-select: none;
+            overflow-x: hidden;
+        }
+
+        #file-select-screen {
+            padding: 32px;
+            text-align: center;
+            border-radius: 12px;
+            background-color: #1f2a37;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            max-width: var(--game-width);
+            width: 100%;
+            margin: 0 auto;
+        }
+        
+        #file-select-screen h1 {
+            font-size: 1.875rem; 
+            font-weight: 700; 
+            margin-bottom: 1rem;
+            color: #34d399; 
+        }
+        #file-select-screen p {
+            margin-bottom: 1.5rem;
+            color: #9ca3af;
+        }
+
+        #file-label {
+            cursor: pointer;
+            background-color: #2563eb; 
+            color: white;
+            font-weight: 700;
+            padding: 16px 32px;
+            border-radius: 12px;
+            transition: background-color 0.2s, box-shadow 0.2s;
+            display: block;
+            box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3);
+        }
+        #file-label:hover {
+            background-color: #1d4ed8; 
+        }
+
+        #loading-message, #error-message {
+            margin-top: 1.5rem;
+            font-weight: 600;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            min-height: 28px;
+        }
+        #loading-message { color: #facc15; }
+        #error-message { color: #ef4444; }
+
+        .spinner {
+            animation: spin 1s linear infinite;
+            margin-right: 0.75rem;
+            height: 20px;
+            width: 20px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top-color: currentColor;
+            border-radius: 50%;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .game-container {
+            width: 100%;
+            max-width: var(--game-width);
+            background-color: var(--color-surface);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .game-header {
+            padding: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--color-border);
+            background-color: #0c1015; 
+        }
+        #score-display {
+            font-size: 1.25rem; 
+            font-weight: 700;
+            color: #fcd34d; 
+        }
+        
+        /* コンボ表示を強調 */
+        #combo-display {
+            font-size: 2.5rem; 
+            font-weight: 900;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+            min-width: 120px;
+            text-align: right;
+            transition: color 0.2s;
+        }
+        #combo-text {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #9ca3af;
+            display: block;
+            margin-top: -8px;
+        }
+
+        /* 判定オフセットコントロール */
+        #offset-control {
+            font-size: 0.75rem;
+            color: #9ca3af;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background-color: #1f2a37;
+            border-radius: 0 0 8px 8px;
+        }
+        #offset-value-display {
+            font-weight: 700;
+            color: var(--color-accent-pink);
+            min-width: 40px;
+            text-align: right;
+        }
+        #offset-control button {
+            background: #30363d;
+            border: 1px solid var(--color-border);
+            padding: 2px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.1s;
+        }
+        #offset-control button:hover {
+            background: #444c56;
+        }
+        #offset-slider {
+            flex-grow: 1;
+        }
+        #offset-slider-label {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            margin-top: 4px;
+        }
+
+
+        .lane-area {
+            position: relative;
+            height: var(--lane-height);
+            display: flex;
+            border-bottom: 2px solid var(--color-border);
+        }
+
+        .lane {
+            flex-grow: 1;
+            width: calc(100% / 4); 
+            border-right: 1px solid rgba(48, 54, 61, 0.5);
+            position: relative;
+        }
+        .lane:last-child {
+            border-right: none;
+        }
+
+        /* 判定ラインを大きく */
+        .judgment-line {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 12px; 
+            background-color: var(--color-accent-pink); 
+            box-shadow: 0 0 18px var(--color-accent-pink); 
+            z-index: 10;
+        }
+        
+        .note {
+            position: absolute;
+            top: -100px; 
+            width: 90%;
+            height: 18px; 
+            border-radius: 4px;
+            left: 5%;
+            transform-origin: top;
+            box-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
+            z-index: 5;
+            transition: opacity 0.05s linear; 
+        }
+
+        /* ノーツの色分け用クラス */
+        .note.lane-0 { background-color: #ff9900; box-shadow: 0 0 8px #ff9900; } 
+        .note.lane-1 { background-color: #4ecdc4; box-shadow: 0 0 8px #4ecdc4; }
+        .note.lane-2 { background-color: #4f86f7; box-shadow: 0 0 8px #4f86f7; }
+        .note.lane-3 { background-color: #f9f871; box-shadow: 0 0 8px #f9f871; }
+
+        /* KEY BUTTON: タッチターゲットを拡大 */
+        .key-button {
+            height: 80px; /* 80pxに拡大 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--color-text-main);
+            background-color: #21262d;
+            border: 2px solid var(--color-border);
+            border-top: none;
+            cursor: pointer;
+            transition: background-color 0.1s, box-shadow 0.1s, transform 0.05s;
+            user-select: none;
+            box-shadow: inset 0 3px 5px rgba(0, 0, 0, 0.3); /* 立体感を出す */
+        }
+
+        .key-button-container {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+        }
+
+        .key-pressed {
+            background-color: #30363d !important;
+            transform: translateY(2px);
+            opacity: 0.9;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5) !important; /* 押された感を強調 */
+        }
+        
+        .key-flash {
+            animation: key-flash-anim 0.1s ease-out;
+            box-shadow: 0 0 15px currentColor !important;
+            transform: translateY(0px) scale(1.05);
+        }
+
+        @keyframes key-flash-anim {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        /* 判定フィードバックの色とアニメーション */
+        #feedback {
+            position: absolute;
+            top: 60%; /* 判定ラインより少し上に表示 */
+            left: 50%;
+            transform: translate(-50%, -50%) scale(1);
+            font-size: 3rem;
+            font-weight: 900;
+            text-shadow: 0 0 20px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.1s ease-out, transform 0.1s ease-out;
+            z-index: 100;
+        }
+        .feedback-anim {
+            animation: feedback-scale 0.2s ease-out forwards;
+        }
+        @keyframes feedback-scale {
+            0% { opacity: 0; transform: translate(-50%, -50%) scale(1.2); }
+            50% { opacity: 1; transform: translate(-50%, -50%) scale(1.0); }
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+        }
+
+        #countdown-display {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 5rem;
+            color: #34d399;
+            opacity: 1;
+            transition: opacity 0.5s, transform 0.5s;
+            text-shadow: 0 0 20px #34d399;
+            z-index: 200;
+        }
+    </style>
+</head>
+<body class="flex flex-col p-4 md:p-8">
+
+    <!-- ファイル選択画面 -->
+    <div id="file-select-screen" style="display: block;">
+        <h1>Web Audio リズムゲーム</h1>
+        <p>WAV, MP3, M4Aなどの音声ファイルを選択してください。</p>
+        <label id="file-label" for="audioFile">
+            
+            音楽ファイルを選択して開始
+        </label>
+        <input type="file" id="audioFile" accept="audio/*" style="display: none;">
+        
+        <p id="loading-message" class="mt-6" style="display: none;">
+            <span class="spinner"></span>
+            ファイルを読み込み中...
+        </p>
+        <div id="error-message" class="mt-4" style="display: none;"></div>
+    </div>
+
+    <!-- ゲーム本体 -->
+    <div id="game-screen" class="game-container" style="display: none;">
+        <div class="game-header">
+            <div id="score-display">Score: 0</div>
+            <div id="combo-container">
+                <div id="combo-display">0</div>
+                <span id="combo-text">COMBO</span>
+            </div>
+        </div>
+        
+        <!-- ノーツ誤差調整機能 -->
+        <div id="offset-control">
+            <label>判定オフセット (ms):</label>
+            <button id="offset-minus-10">-10</button>
+            <input type="range" id="offset-slider" value="0" min="-200" max="200" step="1">
+            <button id="offset-plus-10">+10</button>
+            <span id="offset-value-display">0</span> ms
+        </div>
+
+        <div class="lane-area" id="lane-area">
+            <!-- 判定ライン -->
+            <div class="judgment-line"></div>
+        </div>
+
+        <!-- 判定フィードバック -->
+        <div id="feedback"></div>
+        
+        <!-- カウントダウン表示 -->
+        <div id="countdown-display" style="opacity: 0;">3</div>
+
+        <div class="key-button-container" id="key-area">
+            <div class="key-button" data-lane="0">D</div>
+            <div class="key-button" data-lane="1">F</div>
+            <div class="key-button" data-lane="2">J</div>
+            <div class="key-button" data-lane="3">K</div>
+        </div>
+        <div style="text-align: center; font-size: 0.75rem; color: #6e7681; padding: 8px; background-color: #0c1015;">
+            キーボードの D, F, J, K または下のボタンをタッチ！
+        </div>
+    </div>
+
+    <script>
+        // HTML elements
+        const fileSelectScreen = document.getElementById('file-select-screen');
+        const gameScreen = document.getElementById('game-screen');
+        const audioFileInput = document.getElementById('audioFile');
+        const loadingMessage = document.getElementById('loading-message');
+        const errorMessage = document.getElementById('error-message');
+        const laneArea = document.getElementById('lane-area');
+        const feedbackDiv = document.getElementById('feedback');
+        const countdownDisplay = document.getElementById('countdown-display');
+        const scoreDisplay = document.getElementById('score-display');
+        const comboDisplay = document.getElementById('combo-display');
+        const keyButtons = document.querySelectorAll('.key-button');
+        
+        // Offset adjustment elements
+        const offsetSlider = document.getElementById('offset-slider');
+        const offsetValueDisplay = document.getElementById('offset-value-display');
+        const offsetMinus10 = document.getElementById('offset-minus-10');
+        const offsetPlus10 = document.getElementById('offset-plus-10');
+
+        // Web Audio API context and state
+        let audioContext = null;
+        let audioBuffer = null;
+        let sourceNode = null;
+        let startTime = 0; 
+        let isContextReady = false; // Contextの準備完了フラグ
+
+        // Game constants
+        const LANE_COUNT = 4;
+        const NOTE_SPEED_S = 2.0; // Time for note to travel from top to bottom (seconds)
+        const LANE_HEIGHT_PX = 500; 
+        const NOTE_HEIGHT_PX = 18; 
+
+        let isPlaying = false;
+        let notes = []; 
+        let activeNotes = []; 
+        let score = 0;
+        let combo = 0;
+        let animationFrameId = null;
+        let hitOffsetMs = 0; // Hit offset (ms)
+        let lastNoteTimes = Array(LANE_COUNT).fill(-Infinity); // Tracks last time a note was placed in each lane
+
+        // Judgment windows (seconds)
+        const PERFECT_WINDOW = 0.08; 
+        const EXCELLENT_WINDOW = 0.12; 
+        const GREAT_WINDOW = 0.18;   
+        const GOOD_WINDOW = 0.25;    
+
+        // Note colors 
+        const LANE_COLORS = [
+            '#ff9900', 
+            '#4ecdc4', 
+            '#4f86f7', 
+            '#f9f871'  
+        ];
+
+        // === 0. Offset Function Initialization ===
+        function updateOffset(value) {
+            // Clamp value to slider limits
+            let newValue = parseInt(value, 10);
+            if (newValue < -200) newValue = -200;
+            if (newValue > 200) newValue = 200;
+
+            hitOffsetMs = newValue;
+            offsetSlider.value = hitOffsetMs;
+            offsetValueDisplay.textContent = hitOffsetMs;
+            console.log(`判定オフセットを ${hitOffsetMs}ms に設定しました。`);
+        }
+
+        offsetSlider.addEventListener('input', (e) => updateOffset(e.target.value));
+        offsetMinus10.addEventListener('click', () => updateOffset(hitOffsetMs - 10));
+        offsetPlus10.addEventListener('click', () => updateOffset(hitOffsetMs + 10));
+        
+        updateOffset(0);
+
+        // === 1. File Loading and Decoding ===
+
+        audioFileInput.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            errorMessage.style.display = 'none';
+            loadingMessage.style.display = 'flex';
+            loadingMessage.innerHTML = '<span class="spinner"></span>ファイルを読み込み中...';
+            audioFileInput.value = ''; // ファイル入力のリセット
+
+            try {
+                // 1. AudioContextの初期化/再開 (ユーザー操作に紐づける)
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                } 
+                if (audioContext.state === 'suspended') {
+                    // ユーザー操作によるコンテキスト再開
+                    await audioContext.resume();
+                }
+                isContextReady = true;
+
+                const arrayBuffer = await file.arrayBuffer();
+
+                loadingMessage.innerHTML = '<span class="spinner"></span>**デコード中...**';
+                // 2. Decode Audio Data
+                audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                
+                loadingMessage.innerHTML = '<span class="spinner"></span>**リズム解析中...** (ノーツを生成しています)';
+                
+                // 3. Rhythm Analysis
+                await analyzeAndPrepareNotes(audioBuffer);
+
+                prepareGame();
+
+            } catch (error) {
+                isContextReady = false;
+                console.error("Audio Processing Error:", error);
+
+                if (error.name === 'EncodingError' || error.message.includes('file format')) {
+                    errorMessage.textContent = 'エラー: このファイル形式はブラウザでサポートされていません。MP3, WAV, M4Aなどをお試しください。';
+                } else {
+                    errorMessage.textContent = `エラー: 処理が失敗しました。ファイルが大きすぎるか、破損している可能性があります。詳細: ${error.message}`;
+                }
+                errorMessage.style.display = 'block';
+                loadingMessage.style.display = 'none';
+            }
+        });
+
+        // === 2. Rhythm Analysis (Strict Timing Logic - 密度調整版) ===
+
+        function analyzeAndPrepareNotes(buffer) {
+            return new Promise((resolve) => {
+                // Use setTimeout to prevent main thread blocking
+                setTimeout(() => {
+                    notes = [];
+                    lastNoteTimes = Array(LANE_COUNT).fill(-Infinity); 
+                    
+                    const sampleRate = buffer.sampleRate;
+                    const frameSize = Math.floor(sampleRate * 0.03); // 30ms frame resolution
+                    
+                    // ボーカルのアタックも拾うため、フィルタをかけない生のオーディオデータを使用
+                    const processedChannelData = buffer.getChannelData(0); 
+                    
+                    const spectralFlux = []; 
+                    
+                    // 2. Calculate Spectral Flux (measures sudden change in energy/spectrum)
+                    let previousEnergy = 0;
+                    for (let i = 0; i < processedChannelData.length; i += frameSize) {
+                        let currentEnergy = 0;
+                        for (let j = 0; j < frameSize && i + j < processedChannelData.length; j++) {
+                            const sample = processedChannelData[i + j];
+                            currentEnergy += sample * sample;
+                        }
+                        // 変化量 (Spectral Flux) を計算
+                        const flux = Math.max(0, currentEnergy - previousEnergy);
+                        spectralFlux.push(flux);
+                        previousEnergy = currentEnergy;
+                    }
+
+                    // 3. Global Normalization: Calculate Median Flux 
+                    const sortedFlux = [...spectralFlux].sort((a, b) => a - b);
+                    const medianFlux = sortedFlux.length > 0 ? sortedFlux[Math.floor(sortedFlux.length / 2)] : 0.01;
+                    
+                    // Global Minimum Threshold: 閾値を上げて、全体的にノーツの発生を抑える (2.0)
+                    const GLOBAL_MIN_THRESHOLD_MULTIPLIER = 2.0; 
+                    const globalMinThreshold = medianFlux * GLOBAL_MIN_THRESHOLD_MULTIPLIER;
+                    
+                    // 4. Adaptive Threshold Detection
+                    // ノーツ間の最低時間 (以前の 0.15s を維持)
+                    const minTimeBetweenNotes = 0.15; 
+                    const minFramesBetweenNotes = Math.floor(minTimeBetweenNotes / (frameSize / sampleRate));
+                    const historyFrames = Math.floor(1.5 / (frameSize / sampleRate)); 
+                    
+                    // Adaptive Threshold: 閾値を上げて、強いアタックのみを検出する (4.0)
+                    const ADAPTIVE_THRESHOLD_MULTIPLIER = 4.0; 
+
+                    let lastNoteFrame = -Infinity;
+                    
+                    for (let i = 0; i < spectralFlux.length; i++) {
+                        const currentFlux = spectralFlux[i];
+                        const currentTime = ((i + 1) * frameSize) / sampleRate;
+
+                        // Calculate adaptive local threshold
+                        let historySum = 0;
+                        const start = Math.max(0, i - historyFrames);
+                        const end = i;
+                        for (let j = start; j < end; j++) {
+                            historySum += spectralFlux[j];
+                        }
+                        const averageHistoryFlux = historySum / (end - start + 1);
+                        const localAdaptiveThreshold = averageHistoryFlux * ADAPTIVE_THRESHOLD_MULTIPLIER;
+                        
+                        // Dual Threshold (Local and Global): どちらか高い方を採用
+                        const finalThreshold = Math.max(localAdaptiveThreshold, globalMinThreshold);
+
+                        // Strict Note placement logic 
+                        if (currentFlux > finalThreshold && 
+                            i - lastNoteFrame > minFramesBetweenNotes &&
+                            currentTime > NOTE_SPEED_S + 0.5) // 曲の頭のノイズを避ける
+                        {
+                            // Lane Distribution Logic: Standard fair distribution 
+                            const timeConstraint = 0.35; 
+                            let availableLanes = [];
+                            
+                            for(let l = 0; l < LANE_COUNT; l++) {
+                                if (currentTime - lastNoteTimes[l] >= timeConstraint) {
+                                    availableLanes.push(l);
+                                }
+                            }
+                            
+                            let selectedLane;
+                            if (availableLanes.length > 0) {
+                                selectedLane = availableLanes[Math.floor(Math.random() * availableLanes.length)];
+                            } else {
+                                // Fallback: Choose lane used the longest time ago 
+                                let minTime = Infinity;
+                                let bestLane = 0;
+                                for(let l = 0; l < LANE_COUNT; l++) {
+                                    if (lastNoteTimes[l] < minTime) {
+                                        minTime = lastNoteTimes[l];
+                                        bestLane = l;
+                                    }
+                                }
+                                selectedLane = bestLane;
+                            }
+                            
+                            notes.push({ time: currentTime, lane: selectedLane, status: 'upcoming' });
+                            lastNoteFrame = i;
+                            lastNoteTimes[selectedLane] = currentTime; 
+                        }
+                    }
+
+                    console.log(`リズム解析に基づいて ${notes.length} 個のノーツを生成しました。`);
+                    resolve();
+                }, 10); 
+            });
+        }
+
+        // === 3. Game Preparation and Start ===
+
+        function prepareGame() {
+            if (!isContextReady) {
+                errorMessage.textContent = 'エラー: オーディオコンテキストの準備ができていません。ファイルを再選択してください。';
+                errorMessage.style.display = 'block';
+                loadingMessage.style.display = 'none';
+                return;
+            }
+
+            fileSelectScreen.style.display = 'none';
+            gameScreen.style.display = 'block';
+            loadingMessage.style.display = 'none';
+
+            score = 0;
+            combo = 0;
+            scoreDisplay.textContent = 'Score: 0';
+            updateComboDisplay(0);
+            activeNotes = [];
+
+            // Clear previous note elements
+            Array.from(laneArea.children).forEach(el => {
+                if (el.classList.contains('lane')) {
+                    while (el.firstChild) {
+                        el.removeChild(el.firstChild);
+                    }
+                }
+            });
+
+            // Start countdown
+            startCountdown();
+        }
+
+        function startCountdown() {
+            let count = 3;
+            countdownDisplay.textContent = count;
+            countdownDisplay.style.opacity = 1;
+            
+            const interval = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    countdownDisplay.textContent = count;
+                } else if (count === 0) {
+                    countdownDisplay.textContent = 'GO!';
+                } else {
+                    clearInterval(interval);
+                    countdownDisplay.style.opacity = 0;
+                    startGame();
+                }
+            }, 1000);
+        }
+
+        function startGame() {
+            if (!isContextReady || isPlaying) return;
+
+            if (sourceNode) {
+                try { sourceNode.stop(); } catch (e) { /* Ignore */ }
+                sourceNode.disconnect();
+            }
+
+            sourceNode = audioContext.createBufferSource();
+            sourceNode.buffer = audioBuffer;
+            sourceNode.connect(audioContext.destination);
+
+            // ノーツが落下する時間と音楽の再生開始時間を正確に同期させる
+            const audioStartDelay = NOTE_SPEED_S; 
+            
+            startTime = audioContext.currentTime + audioStartDelay; 
+            sourceNode.start(audioContext.currentTime + audioStartDelay); 
+            
+            console.log(`ゲーム開始時間 (AudioContext Time): ${startTime.toFixed(3)}s`);
+
+            isPlaying = true;
+            
+            sourceNode.onended = () => {
+                isPlaying = false;
+                cancelAnimationFrame(animationFrameId);
+                showFeedback("FINISH", '#34d399'); 
+            };
+
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+        
+        // === 4. Game Main Loop ===
+
+        function gameLoop() {
+            if (!isPlaying && audioContext.currentTime < startTime) {
+                 animationFrameId = requestAnimationFrame(gameLoop);
+                 return;
+            }
+
+            const songTime = audioContext.currentTime - startTime;
+            // ノーツを生成すべき曲中の時間 = 現在の曲中の時間 + 落下に必要な時間
+            const spawnTime = songTime + NOTE_SPEED_S; 
+
+            // Note spawning
+            for (let i = notes.length - 1; i >= 0; i--) {
+                const noteData = notes[i];
+                
+                if (noteData.status === 'upcoming' && noteData.time <= spawnTime) {
+                    const noteEl = document.createElement('div');
+                    noteEl.className = 'note lane-' + noteData.lane; 
+                    noteEl.dataset.lane = noteData.lane;
+
+                    // children[0] is judgment-line, children[1] onwards are lanes
+                    const laneEl = laneArea.children[noteData.lane + 1]; 
+                    if (laneEl) {
+                        laneEl.appendChild(noteEl);
+                        activeNotes.push({ data: noteData, element: noteEl });
+                        noteData.status = 'active';
+                    }
+                }
+            }
+            
+            // Note movement and judgment logic
+            const nextActiveNotes = [];
+            
+            for (const note of activeNotes) {
+                const noteData = note.data;
+                const noteEl = note.element;
+                // ノートが判定ラインに到達するまでの残り時間
+                const timeDiff = noteData.time - songTime;
+
+                // Y position calculation (where the note's bottom edge meets the judgment line when timeDiff = 0)
+                const yPosition = LANE_HEIGHT_PX * (1 - (timeDiff / NOTE_SPEED_S));
+
+                // Set note's top position
+                noteEl.style.top = `${yPosition - NOTE_HEIGHT_PX}px`; 
+
+                // State check: Remove hit or missed notes
+                if (noteData.status === 'hit' || noteData.status === 'missed') {
+                    noteEl.remove();
+                    continue; 
+                }
+                
+                // Miss Judgment: If note passes the acceptable window
+                if (timeDiff < -GOOD_WINDOW) {
+                    processJudgment('Miss', 0, noteData);
+                    noteEl.remove();
+                    continue; 
+                }
+                
+                // Keep active notes for the next frame
+                nextActiveNotes.push(note);
+            }
+
+            activeNotes = nextActiveNotes;
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        // === 5. User Input and Hit Detection ===
+
+        function handleHit(laneIndex) {
+            if (!isPlaying || !isContextReady) return;
+            
+            // Apply hit offset (ユーザーが設定した補正を反映)
+            const offsetSeconds = hitOffsetMs / 1000;
+            const adjustedSongTime = audioContext.currentTime - startTime - offsetSeconds;
+            
+            let closestNote = null;
+            let minAbsTimeDiff = Infinity;
+
+            for (const note of activeNotes) {
+                if (note.data.lane === laneIndex && note.data.status === 'active') {
+                    const timeDiff = note.data.time - adjustedSongTime;
+                    const absTimeDiff = Math.abs(timeDiff);
+
+                    // Only consider notes within the maximum window
+                    if (absTimeDiff <= GOOD_WINDOW) {
+                        if (absTimeDiff < minAbsTimeDiff) {
+                            minAbsTimeDiff = absTimeDiff;
+                            closestNote = note;
+                        }
+                    }
+                }
+            }
+
+            if (closestNote) {
+                const noteData = closestNote.data;
+
+                let judgment = null;
+                let points = 0;
+                
+                // Judgment Logic
+                if (minAbsTimeDiff <= PERFECT_WINDOW) {
+                    judgment = 'Perfect';
+                    points = 100;
+                } else if (minAbsTimeDiff <= EXCELLENT_WINDOW) {
+                    judgment = 'Excellent';
+                    points = 80;
+                } else if (minAbsTimeDiff <= GREAT_WINDOW) {
+                    judgment = 'Great';
+                    points = 50;
+                } else {
+                    judgment = 'Good';
+                    points = 10;
+                }
+
+                noteData.status = 'hit'; 
+                processJudgment(judgment, points, noteData);
+            } 
+            // If no note is found within the window, ignore the tap (no Miss)
+        }
+
+        function updateComboDisplay(newCombo) {
+            comboDisplay.textContent = newCombo;
+            
+            let comboColor = '#c9d1d9'; // Initial color
+            if (newCombo >= 10) comboColor = '#f9f871'; 
+            if (newCombo >= 30) comboColor = '#ff9900'; 
+            if (newCombo >= 50) comboColor = '#ff007f'; 
+            if (newCombo >= 100) comboColor = '#34d399'; // New high combo color
+            
+            comboDisplay.style.color = comboColor;
+        }
+
+        function processJudgment(type, points, noteData) {
+            
+            score += points;
+            
+            let color = '';
+
+            if (type !== 'Miss') {
+                combo++;
+                if (type === 'Perfect') color = '#fcd34d'; 
+                else if (type === 'Excellent') color = '#ff69b4';
+                else if (type === 'Great') color = '#34d399'; 
+                else if (type === 'Good') color = '#60a5fa'; 
+                flashKeyButton(noteData.lane, color);
+            } else {
+                combo = 0;
+                noteData.status = 'missed';
+                color = '#ef4444'; 
+            }
+
+            scoreDisplay.textContent = `Score: ${score}`;
+            updateComboDisplay(combo);
+            
+            showFeedback(type, color);
+        }
+        
+        function flashKeyButton(laneIndex, color) {
+            const button = document.querySelector(`.key-button[data-lane="${laneIndex}"]`);
+            if (button) {
+                button.style.color = color;
+                button.classList.remove('key-flash'); 
+                void button.offsetWidth; 
+                button.classList.add('key-flash');
+                
+                setTimeout(() => {
+                    button.style.color = 'var(--color-text-main)';
+                }, 150);
+            }
+        }
+
+        function showFeedback(text, color) {
+            feedbackDiv.textContent = text;
+            feedbackDiv.style.color = color;
+            feedbackDiv.style.textShadow = `0 0 10px ${color}, 0 0 20px ${color}`;
+            
+            feedbackDiv.classList.remove('feedback-anim');
+            void feedbackDiv.offsetWidth; 
+            feedbackDiv.classList.add('feedback-anim');
+        }
+
+        // === 6. Initialization and Event Listeners ===
+
+        // Create lane elements
+        for (let i = 0; i < LANE_COUNT; i++) {
+            const lane = document.createElement('div');
+            lane.className = 'lane';
+            laneArea.appendChild(lane);
+        }
+
+        // Keyboard input handling
+        document.addEventListener('keydown', (event) => {
+            let laneIndex = -1;
+            switch (event.key.toUpperCase()) {
+                case 'D': laneIndex = 0; break;
+                case 'F': laneIndex = 1; break;
+                case 'J': laneIndex = 2; break;
+                case 'K': laneIndex = 3; break;
+            }
+            if (laneIndex !== -1) {
+                const button = document.querySelector(`.key-button[data-lane="${laneIndex}"]`);
+                if (button && !button.classList.contains('key-pressed')) {
+                    button.classList.add('key-pressed');
+                    handleHit(laneIndex);
+                }
+            }
+        });
+
+        document.addEventListener('keyup', (event) => {
+            let laneIndex = -1;
+            switch (event.key.toUpperCase()) {
+                case 'D': laneIndex = 0; break;
+                case 'F': laneIndex = 1; break;
+                case 'J': laneIndex = 2; break;
+                case 'K': laneIndex = 3; break;
+            }
+            if (laneIndex !== -1) {
+                const button = document.querySelector(`.key-button[data-lane="${laneIndex}"]`);
+                if (button) {
+                    button.classList.remove('key-pressed');
+                }
+            }
+        });
+
+        // Touch/Mouse input handling (Touch dropout fixed by adding touchcancel)
+        keyButtons.forEach(button => {
+            const laneIndex = parseInt(button.dataset.lane);
+            
+            const handleAction = (e) => {
+                // Prevent default browser actions (scrolling/zooming) on touch
+                e.preventDefault(); 
+                handleHit(laneIndex);
+                button.classList.add('key-pressed');
+            };
+
+            const handleRelease = (e) => {
+                // Prevent default browser actions (scrolling/zooming) on touch
+                e.preventDefault();
+                button.classList.remove('key-pressed');
+            };
+
+            button.addEventListener('mousedown', handleAction);
+            button.addEventListener('touchstart', handleAction, { passive: false }); 
+            
+            button.addEventListener('mouseup', handleRelease);
+            button.addEventListener('touchend', handleRelease);
+            button.addEventListener('touchcancel', handleRelease); // Added for touch dropout
+            button.addEventListener('mouseleave', handleRelease);
+        });
+
+    </script>
+</body>
+</html>
